@@ -211,7 +211,13 @@
         const LONG_PRESS_MS = 300; 
         const DRAG_THRESHOLD = 10; 
 
+        // 💡 핀치 투 줌(멀티터치)을 위한 변수 추가
+        const activePointers = new Map();
+        let initialPinchDistance = null;
+        let lastPinchCenter = { x: 0, y: 0 };
+
         viewport.addEventListener('contextmenu', e => e.preventDefault());
+        
         viewport.addEventListener('pointerdown', (e) => {
             if (e.button !== 0 && e.pointerType === 'mouse') return;
             if (e.target.closest('#toolbar')) return;
@@ -223,51 +229,113 @@
 
             if (e.target.classList.contains('mask-box')) return;
 
-            actionState = 'pending';
-            startEvent = { clientX: e.clientX, clientY: e.clientY };
-            startX = e.clientX - panX;
-            startY = e.clientY - panY;
-
-            const page = e.target.closest('.page-node');
-
-            pressTimer = setTimeout(() => {
-                if (actionState === 'pending') {
-                    if (page) {
-                        actionState = 'draw';
-                        activePage = page;
-                        const rect = activePage.getBoundingClientRect();
-                        drawStartX = (e.clientX - rect.left) / scale;
-                        drawStartY = (e.clientY - rect.top) / scale;
-
-                        activeMask = document.createElement('div');
-                        activeMask.className = 'mask-box';
-                        activeMask.style.left = drawStartX + 'px';
-                        activeMask.style.top = drawStartY + 'px';
-                        activeMask.style.width = '0px';
-                        activeMask.style.height = '0px';
-
-                        activeMask.addEventListener('pointerdown', function(ev) {
-                            if (isEraseMode) { ev.stopPropagation(); this.remove(); return; }
-                            ev.stopPropagation();
-                            this.classList.add('revealed');
-                        });
-                        activeMask.addEventListener('pointerup', function(ev) { this.classList.remove('revealed'); });
-                        activeMask.addEventListener('pointerleave', function(ev) { this.classList.remove('revealed'); });
-
-                        activePage.appendChild(activeMask);
-                        document.body.style.cursor = 'crosshair';
-                        if (navigator.vibrate) navigator.vibrate(30);
-                    } else {
-                        actionState = 'pan';
-                    }
-                }
-            }, LONG_PRESS_MS);
-
+            // 터치 포인터 등록
+            activePointers.set(e.pointerId, e);
             viewport.setPointerCapture(e.pointerId);
+
+            // 💡 두 손가락이 닿았을 때 (핀치 줌 시작)
+            if (activePointers.size === 2) {
+                clearTimeout(pressTimer);
+                actionState = 'pinch';
+                const pts = Array.from(activePointers.values());
+                initialPinchDistance = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                lastPinchCenter = {
+                    x: (pts[0].clientX + pts[1].clientX) / 2,
+                    y: (pts[0].clientY + pts[1].clientY) / 2
+                };
+                
+                // 가림막을 그리려다 두 번째 손가락이 닿은 경우 생성 중이던 가림막 취소
+                if (activeMask && parseInt(activeMask.style.width) === 0) {
+                    activeMask.remove();
+                    activeMask = null;
+                    activePage = null;
+                }
+                return;
+            }
+
+            // 한 손가락일 때 (이동 또는 가림막 그리기 대기)
+            if (activePointers.size === 1) {
+                actionState = 'pending';
+                startEvent = { clientX: e.clientX, clientY: e.clientY };
+                startX = e.clientX - panX;
+                startY = e.clientY - panY;
+
+                const page = e.target.closest('.page-node');
+
+                pressTimer = setTimeout(() => {
+                    if (actionState === 'pending') {
+                        if (page) {
+                            actionState = 'draw';
+                            activePage = page;
+                            const rect = activePage.getBoundingClientRect();
+                            drawStartX = (e.clientX - rect.left) / scale;
+                            drawStartY = (e.clientY - rect.top) / scale;
+
+                            activeMask = document.createElement('div');
+                            activeMask.className = 'mask-box';
+                            activeMask.style.left = drawStartX + 'px';
+                            activeMask.style.top = drawStartY + 'px';
+                            activeMask.style.width = '0px';
+                            activeMask.style.height = '0px';
+
+                            activeMask.addEventListener('pointerdown', function(ev) {
+                                if (isEraseMode) { ev.stopPropagation(); this.remove(); return; }
+                                ev.stopPropagation();
+                                this.classList.add('revealed');
+                            });
+                            activeMask.addEventListener('pointerup', function(ev) { this.classList.remove('revealed'); });
+                            activeMask.addEventListener('pointerleave', function(ev) { this.classList.remove('revealed'); });
+
+                            activePage.appendChild(activeMask);
+                            document.body.style.cursor = 'crosshair';
+                            if (navigator.vibrate) navigator.vibrate(30);
+                        } else {
+                            actionState = 'pan';
+                        }
+                    }
+                }, LONG_PRESS_MS);
+            }
         });
 
         viewport.addEventListener('pointermove', (e) => {
+            // 포인터 위치 최신화
+            if (activePointers.has(e.pointerId)) {
+                activePointers.set(e.pointerId, e);
+            }
+
             if (actionState === 'none') return;
+
+            // 💡 핀치 투 줌 계산 (확대/축소 및 이동 동시 처리)
+            if (actionState === 'pinch' && activePointers.size === 2) {
+                const pts = Array.from(activePointers.values());
+                const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                const centerX = (pts[0].clientX + pts[1].clientX) / 2;
+                const centerY = (pts[0].clientY + pts[1].clientY) / 2;
+
+                if (initialPinchDistance) {
+                    const scaleDelta = dist / initialPinchDistance;
+                    let newScale = Math.max(0.02, Math.min(scale * scaleDelta, 3));
+
+                    const rect = viewport.getBoundingClientRect();
+                    const mouseX = lastPinchCenter.x - rect.left;
+                    const mouseY = lastPinchCenter.y - rect.top;
+
+                    let newPanX = mouseX - (mouseX - panX) * (newScale / scale);
+                    let newPanY = mouseY - (mouseY - panY) * (newScale / scale);
+
+                    // 손가락 중심점의 이동(Pan) 반영
+                    newPanX += (centerX - lastPinchCenter.x);
+                    newPanY += (centerY - lastPinchCenter.y);
+
+                    panX = newPanX;
+                    panY = newPanY;
+                    scale = newScale;
+                    updateTransform();
+                }
+                initialPinchDistance = dist;
+                lastPinchCenter = { x: centerX, y: centerY };
+                return;
+            }
 
             if (actionState === 'pending') {
                 const dx = e.clientX - startEvent.clientX;
@@ -299,7 +367,21 @@
             }
         });
 
-        viewport.addEventListener('pointerup', (e) => {
+        // 💡 공통 터치 종료(Up/Cancel) 핸들러
+        const handlePointerUp = (e) => {
+            activePointers.delete(e.pointerId);
+            
+            // 캡처 해제 오류 방지
+            try { viewport.releasePointerCapture(e.pointerId); } catch(err) {}
+
+            if (actionState === 'pinch') {
+                if (activePointers.size < 2) {
+                    initialPinchDistance = null;
+                    actionState = 'none'; // 의도치 않은 이동(Pan) 방지를 위해 제스처 초기화
+                }
+                return;
+            }
+
             clearTimeout(pressTimer);
             document.body.style.cursor = '';
 
@@ -311,10 +393,15 @@
                 activePage = null;
             }
 
-            actionState = 'none';
-            viewport.releasePointerCapture(e.pointerId);
-        });
+            if (activePointers.size === 0) {
+                actionState = 'none';
+            }
+        };
 
+        viewport.addEventListener('pointerup', handlePointerUp);
+        viewport.addEventListener('pointercancel', handlePointerUp);
+
+        // 데스크톱 마우스 휠 줌 (그대로 유지)
         viewport.addEventListener('wheel', (e) => {
             e.preventDefault();
             const delta = -e.deltaY * 0.001;
