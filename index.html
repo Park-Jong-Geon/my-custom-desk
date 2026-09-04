@@ -26,9 +26,25 @@
         #canvas-desk { position: absolute; top: 0; left: 0; transform-origin: 0 0; display: grid; gap: 120px; padding: 150px; width: max-content; will-change: transform; }
         .chunk-group { display: grid; gap: 1px; background: var(--grid-border); border: 1px solid var(--grid-border); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
         
-        .page-node { position: relative; background: var(--paper-bg); display: flex; justify-content: center; align-items: center; overflow: hidden; }
-        /* 💡 수정된 부분: object-fit 속성을 주어 비율이 강제로 찌그러지지 않게 방어 */
-        .page-node canvas { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+        .page-node { 
+            position: relative; 
+            background: var(--paper-bg); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            overflow: hidden;
+            width: 450px;
+            /* 💡 핵심 해결: 고정 높이 대신 브라우저가 CSS 비율을 완벽히 계산하도록 지정 */
+            aspect-ratio: var(--aspect-ratio, 4 / 3);
+        }
+        .page-node canvas { 
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+            pointer-events: none; 
+        }
         .page-node.empty { background: #f8f9fa; }
         
         .mask-box { position: absolute; background: rgba(44, 62, 80, 0.95); backdrop-filter: blur(4px); border: 2px solid #2c3e50; border-radius: 4px; cursor: pointer; z-index: 20; transition: opacity 0.1s ease; touch-action: none; }
@@ -48,9 +64,9 @@
             <option value="8">8장씩 묶기</option>
         </select>
         <select id="desk-columns">
-            <option value="4" selected>가로 4묶음</option>
-            <option value="8">가로 8묶음</option>
-            <option value="8">가로 12묶음</option>
+            <option value="4">가로 4묶음</option>
+            <option value="8" selected>가로 8묶음</option>
+            <option value="12">가로 12묶음</option>
         </select>
         <button id="reset-btn">책상 핏 맞추기</button>
         <div style="width: 2px; height: 20px; background: #666; margin: 0 5px;"></div>
@@ -102,11 +118,6 @@
                     canvas.dataset.rendering = "true";
                     pdfDoc.getPage(pageNum).then(page => {
                         const vp = page.getViewport({ scale: 1.0 }); 
-                        
-                        // 💡 핵심 수정: 해당 페이지의 정확한 비율로 뼈대(Wrapper) 높이를 즉각 재조정
-                        const pageRatio = vp.height / vp.width;
-                        canvas.parentElement.style.height = `${450 * pageRatio}px`;
-
                         canvas.width = vp.width;
                         canvas.height = vp.height;
                         
@@ -163,12 +174,6 @@
             
             if (pdfDoc.numPages === 0) return;
 
-            // 1페이지 비율로 대략적인 초기값 세팅 (개별 렌더링 시 정확히 수정됨)
-            const firstPage = await pdfDoc.getPage(1);
-            const initialVp = firstPage.getViewport({ scale: 1.0 });
-            const initialRatio = initialVp.height / initialVp.width;
-            firstPage.cleanup(); 
-
             let currentGroup = null;
 
             for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -179,10 +184,15 @@
                     desk.appendChild(currentGroup);
                 }
 
+                // 각 페이지의 고유 비율을 미리 비동기로 읽어와서 뼈대에 적용
+                const page = await pdfDoc.getPage(i);
+                const vp = page.getViewport({ scale: 1.0 });
+                const ratio = vp.width / vp.height; // 가로 세로 비율
+                page.cleanup();
+
                 const wrapper = document.createElement('div');
                 wrapper.className = 'page-node';
-                wrapper.style.width = '450px';
-                wrapper.style.height = `${450 * initialRatio}px`; 
+                wrapper.style.setProperty('--aspect-ratio', `${vp.width} / ${vp.height}`);
                 
                 const canvas = document.createElement('canvas');
                 canvas.dataset.pageNumber = i; 
