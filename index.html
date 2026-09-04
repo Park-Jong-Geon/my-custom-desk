@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, touch-action=none">
     <title>My Custom Desk</title>
     
-    <!-- PWA Meta Tags -->
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,84 +13,25 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
-        :root {
-            --bg-color: #2c2c2c;
-            --paper-bg: #ffffff;
-            --grid-border: #d0d0d0; 
-        }
-        body {
-            margin: 0; padding: 0; background-color: var(--bg-color);
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            overflow: hidden; user-select: none;
-            -webkit-touch-callout: none;
-        }
-
-        #toolbar {
-            position: fixed; top: 20px; left: 20px; z-index: 100;
-            background: rgba(40, 40, 40, 0.9); backdrop-filter: blur(10px);
-            padding: 12px 20px; border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            display: flex; flex-wrap: wrap; gap: 15px; color: white; align-items: center;
-            /* 모바일 최적화: 툴바가 줌/스크롤 시 버벅이지 않게 강제 분리 */
-            transform: translateZ(0);
-        }
-        input, button, select {
-            padding: 8px 12px; border-radius: 8px; border: none;
-            background: #4a4a4a; color: white; cursor: pointer; font-weight: 600;
-            outline: none; transition: all 0.2s;
-        }
+        :root { --bg-color: #2c2c2c; --paper-bg: #ffffff; --grid-border: #d0d0d0; }
+        body { margin: 0; padding: 0; background-color: var(--bg-color); font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; user-select: none; -webkit-touch-callout: none; }
+        #toolbar { position: fixed; top: 20px; left: 20px; z-index: 100; background: rgba(40, 40, 40, 0.9); backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: flex; flex-wrap: wrap; gap: 15px; color: white; align-items: center; transform: translateZ(0); }
+        input, button, select { padding: 8px 12px; border-radius: 8px; border: none; background: #4a4a4a; color: white; cursor: pointer; font-weight: 600; outline: none; transition: all 0.2s; }
         button:hover, select:hover { background: #5a5a5a; }
-
         #erase-btn { background: #34495e; }
         #erase-btn.active { background: #f39c12; box-shadow: 0 0 12px rgba(243, 156, 18, 0.6); color: black; }
-
-        #viewport {
-            width: 100vw; height: 100vh; position: absolute; top: 0; left: 0;
-            cursor: grab; touch-action: none;
-            overflow: hidden;
-        }
+        #viewport { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; cursor: grab; touch-action: none; overflow: hidden; }
         #viewport:active { cursor: grabbing; }
         #viewport.erasing-mode { cursor: not-allowed; } 
-
-        #canvas-desk {
-            position: absolute; top: 0; left: 0; transform-origin: 0 0;
-            display: grid; gap: 120px; padding: 150px; width: max-content; 
-            /* GPU 가속 명시 및 렌더링 힌트 */
-            will-change: transform;
-        }
-
-        .chunk-group {
-            display: grid; gap: 1px; 
-            background: var(--grid-border); border: 1px solid var(--grid-border);
-            border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.4);
-            /* 모바일 성능 향상을 위해 그림자 전환 제거 (이동 시 프레임 드랍 원인) */
-            transition: transform 0.2s ease;
-        }
-        .chunk-group:hover {
-            transform: translateY(-5px);
-            outline: 3px solid #3498db; outline-offset: 2px; z-index: 10;
-        }
-
-        .page-node {
-            position: relative; background: var(--paper-bg); 
-            display: flex; justify-content: center; align-items: center; overflow: hidden; 
-        }
-        .page-node canvas { display: block; width: 100%; height: auto; pointer-events: none; }
+        #canvas-desk { position: absolute; top: 0; left: 0; transform-origin: 0 0; display: grid; gap: 120px; padding: 150px; width: max-content; will-change: transform; }
+        .chunk-group { display: grid; gap: 1px; background: var(--grid-border); border: 1px solid var(--grid-border); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+        .page-node { position: relative; background: var(--paper-bg); display: flex; justify-content: center; align-items: center; overflow: hidden; }
+        .page-node canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
         .page-node.empty { background: #f8f9fa; }
-
-        .mask-box {
-            position: absolute; background: rgba(44, 62, 80, 0.95);
-            backdrop-filter: blur(4px); border: 2px solid #2c3e50;
-            border-radius: 4px; cursor: pointer; z-index: 20; transition: opacity 0.1s ease;
-            touch-action: none;
-        }
+        .mask-box { position: absolute; background: rgba(44, 62, 80, 0.95); backdrop-filter: blur(4px); border: 2px solid #2c3e50; border-radius: 4px; cursor: pointer; z-index: 20; transition: opacity 0.1s ease; touch-action: none; }
         .mask-box:active, .mask-box.revealed { opacity: 0.1; }
         .erase-active .mask-box:hover { background: rgba(231, 76, 60, 0.8); border-color: #c0392b; }
-
-        .page-label {
-            position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.85); color: #333;
-            padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: none;
-        }
+        .page-label { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.85); color: #333; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: none; z-index: 5; }
     </style>
 </head>
 <body>
@@ -108,7 +48,6 @@
             <option value="4" selected>가로 4묶음</option>
             <option value="8">가로 8묶음</option>
             <option value="8">가로 12묶음</option>
-            <option value="8">가로 16묶음</option>
         </select>
         <button id="reset-btn">책상 핏 맞추기</button>
         <div style="width: 2px; height: 20px; background: #666; margin: 0 5px;"></div>
@@ -123,6 +62,7 @@
         const viewport = document.getElementById('viewport');
         const desk = document.getElementById('canvas-desk');
         let pdfDoc = null, scale = 0.2, panX = 100, panY = 100;
+        let globalVpTemplate = null; // 슬라이드 비율 계산용
         
         const eraseBtn = document.getElementById('erase-btn');
         let isEraseMode = false, eraseTimer = null, eraseLongPressed = false;
@@ -138,7 +78,6 @@
                 }
             }, 500); 
         });
-        
         eraseBtn.addEventListener('pointerup', (e) => {
             clearTimeout(eraseTimer);
             if (!eraseLongPressed) { 
@@ -148,32 +87,51 @@
                 viewport.classList.toggle('erase-active', isEraseMode);
             }
         });
-        
         eraseBtn.addEventListener('pointerleave', () => clearTimeout(eraseTimer));
 
-        // 💡 1. 지연 렌더링 (Lazy Loading) 옵저버 세팅
-        // 화면 바깥 1500px 범위까지만 렌더링하여 메모리를 획기적으로 절약합니다.
-        const renderObserver = new IntersectionObserver((entries, observer) => {
+        // 💡 궁극의 메모리 관리: 화면에 보일 때만 그리고, 벗어나면 즉시 지워버림!
+        const renderObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
+                const canvas = entry.target;
+                const pageNum = parseInt(canvas.dataset.pageNumber);
+                
                 if (entry.isIntersecting) {
-                    const canvas = entry.target;
-                    const pageNum = parseInt(canvas.dataset.pageNumber);
+                    // 화면에 들어왔을 때 (렌더링)
+                    if (canvas.dataset.rendering === "true" || canvas.dataset.rendered === "true") return;
                     
-                    if (!canvas.dataset.rendered && pdfDoc) {
-                        canvas.dataset.rendered = "true";
-                        pdfDoc.getPage(pageNum).then(page => {
-                            // 모바일 기기 메모리 최적화를 위해 배율(Scale)을 1.2로 설정
-                            const vp = page.getViewport({ scale: 1.2 });
-                            if (canvas.width !== vp.width || canvas.height !== vp.height) {
-                                canvas.width = vp.width;
-                                canvas.height = vp.height;
-                            }
-                            page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+                    canvas.dataset.rendering = "true";
+                    pdfDoc.getPage(pageNum).then(page => {
+                        const vp = page.getViewport({ scale: 1.0 }); // 메모리 위해 배율 1.0 유지
+                        canvas.width = vp.width;
+                        canvas.height = vp.height;
+                        
+                        // alpha: false 옵션으로 브라우저 합성(Compositing) 연산 감소
+                        const ctx = canvas.getContext('2d', { alpha: false });
+                        ctx.fillStyle = "white";
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        
+                        const renderTask = page.render({ canvasContext: ctx, viewport: vp });
+                        renderTask.promise.then(() => {
+                            canvas.dataset.rendered = "true";
+                            canvas.dataset.rendering = "false";
+                            // 💡 PDF.js 내부 캐시 찌꺼기 즉시 삭제! (튕김 방지 핵심)
+                            page.cleanup(); 
                         });
+                    });
+                } else {
+                    // 💡 화면 밖으로 나갔을 때 (메모리 해제)
+                    if (canvas.dataset.rendered === "true") {
+                        // 캔버스 크기를 1픽셀로 줄여 RAM을 즉시 브라우저에 반환
+                        canvas.width = 1;
+                        canvas.height = 1;
+                        const ctx = canvas.getContext('2d', { alpha: false });
+                        ctx.clearRect(0, 0, 1, 1);
+                        canvas.dataset.rendered = "false";
+                        canvas.dataset.rendering = "false";
                     }
                 }
             });
-        }, { root: viewport, rootMargin: "1500px" });
+        }, { root: viewport, rootMargin: "600px" }); // 여유 공간 축소로 더 빨리 메모리 해제
 
         document.getElementById('file-input').addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -204,9 +162,11 @@
             
             if (pdfDoc.numPages === 0) return;
 
-            // 💡 2. 초기 로딩 속도 극대화: 첫 페이지 크기를 기준으로 뼈대(DOM)부터 즉시 생성
+            // 첫 페이지로 가로세로 비율(Aspect Ratio) 미리 계산
             const firstPage = await pdfDoc.getPage(1);
-            const vpTemplate = firstPage.getViewport({ scale: 1.2 });
+            globalVpTemplate = firstPage.getViewport({ scale: 1.0 });
+            const pageRatio = globalVpTemplate.height / globalVpTemplate.width;
+            firstPage.cleanup(); // 여기서도 바로 청소
 
             let currentGroup = null;
 
@@ -220,13 +180,13 @@
 
                 const wrapper = document.createElement('div');
                 wrapper.className = 'page-node';
+                // 💡 캔버스를 압축(1x1)하더라도 뼈대 크기는 유지하여 UI가 찌그러지지 않게 방지
+                wrapper.style.width = '450px';
+                wrapper.style.height = `${450 * pageRatio}px`; 
                 
                 const canvas = document.createElement('canvas');
-                // 레이아웃이 깨지지 않도록 미리 공간을 확보
-                canvas.width = vpTemplate.width; 
-                canvas.height = vpTemplate.height;
-                canvas.style.width = `450px`; 
                 canvas.dataset.pageNumber = i; 
+                canvas.dataset.rendered = "false";
                 
                 const label = document.createElement('div');
                 label.className = 'page-label';
@@ -236,18 +196,15 @@
                 wrapper.appendChild(label);
                 currentGroup.appendChild(wrapper);
 
-                // 렌더링은 옵저버에게 위임
                 renderObserver.observe(canvas);
             }
             setTimeout(resetView, 100);
         }
 
-        // 💡 3. GPU 가속 및 requestAnimationFrame 적용 (프레임 드랍 방지)
         let isTransformUpdating = false;
         function updateTransform() { 
             if (!isTransformUpdating) {
                 requestAnimationFrame(() => {
-                    // translate3d를 사용하여 그래픽 하드웨어 연산 강제
                     desk.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`;
                     isTransformUpdating = false;
                 });
