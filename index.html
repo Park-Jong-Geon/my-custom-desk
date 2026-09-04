@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, touch-action=none">
-    <title>My Custom Desk</title>
+    <title>Smart Gesture PDF Desk</title>
     
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="manifest.json">
@@ -32,6 +32,8 @@
             padding: 12px 20px; border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             display: flex; flex-wrap: wrap; gap: 15px; color: white; align-items: center;
+            /* 모바일 최적화: 툴바가 줌/스크롤 시 버벅이지 않게 강제 분리 */
+            transform: translateZ(0);
         }
         input, button, select {
             padding: 8px 12px; border-radius: 8px; border: none;
@@ -46,6 +48,7 @@
         #viewport {
             width: 100vw; height: 100vh; position: absolute; top: 0; left: 0;
             cursor: grab; touch-action: none;
+            overflow: hidden;
         }
         #viewport:active { cursor: grabbing; }
         #viewport.erasing-mode { cursor: not-allowed; } 
@@ -53,16 +56,19 @@
         #canvas-desk {
             position: absolute; top: 0; left: 0; transform-origin: 0 0;
             display: grid; gap: 120px; padding: 150px; width: max-content; 
+            /* GPU 가속 명시 및 렌더링 힌트 */
+            will-change: transform;
         }
 
         .chunk-group {
             display: grid; gap: 1px; 
             background: var(--grid-border); border: 1px solid var(--grid-border);
             border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.4);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            /* 모바일 성능 향상을 위해 그림자 전환 제거 (이동 시 프레임 드랍 원인) */
+            transition: transform 0.2s ease;
         }
         .chunk-group:hover {
-            transform: translateY(-5px); box-shadow: 0 20px 45px rgba(0,0,0,0.6);
+            transform: translateY(-5px);
             outline: 3px solid #3498db; outline-offset: 2px; z-index: 10;
         }
 
@@ -92,8 +98,8 @@
     <div id="toolbar">
         <input type="file" id="file-input" accept="application/pdf" />
         <select id="chunk-size">
-            <option value="1" selected>1장씩 보기</option>
-            <option value="2" selected>2장씩 묶기</option>
+            <option value="1">1장씩 보기</option>
+            <option value="2">2장씩 묶기</option>
             <option value="4" selected>4장씩 묶기</option>
             <option value="6">6장씩 묶기</option>
             <option value="8">8장씩 묶기</option>
@@ -145,6 +151,30 @@
         
         eraseBtn.addEventListener('pointerleave', () => clearTimeout(eraseTimer));
 
+        // 💡 1. 지연 렌더링 (Lazy Loading) 옵저버 세팅
+        // 화면 바깥 1500px 범위까지만 렌더링하여 메모리를 획기적으로 절약합니다.
+        const renderObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const canvas = entry.target;
+                    const pageNum = parseInt(canvas.dataset.pageNumber);
+                    
+                    if (!canvas.dataset.rendered && pdfDoc) {
+                        canvas.dataset.rendered = "true";
+                        pdfDoc.getPage(pageNum).then(page => {
+                            // 모바일 기기 메모리 최적화를 위해 배율(Scale)을 1.2로 설정
+                            const vp = page.getViewport({ scale: 1.2 });
+                            if (canvas.width !== vp.width || canvas.height !== vp.height) {
+                                canvas.width = vp.width;
+                                canvas.height = vp.height;
+                            }
+                            page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+                        });
+                    }
+                }
+            });
+        }, { root: viewport, rootMargin: "1500px" });
+
         document.getElementById('file-input').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -171,6 +201,13 @@
             desk.style.gridTemplateColumns = `repeat(${document.getElementById('desk-columns').value}, max-content)`;
             const chunkSize = parseInt(document.getElementById('chunk-size').value);
             const columns = chunkSize === 1 ? 1 : 2; 
+            
+            if (pdfDoc.numPages === 0) return;
+
+            // 💡 2. 초기 로딩 속도 극대화: 첫 페이지 크기를 기준으로 뼈대(DOM)부터 즉시 생성
+            const firstPage = await pdfDoc.getPage(1);
+            const vpTemplate = firstPage.getViewport({ scale: 1.2 });
+
             let currentGroup = null;
 
             for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -181,14 +218,15 @@
                     desk.appendChild(currentGroup);
                 }
 
-                const page = await pdfDoc.getPage(i);
-                const vp = page.getViewport({ scale: 1.5 }); 
                 const wrapper = document.createElement('div');
                 wrapper.className = 'page-node';
                 
                 const canvas = document.createElement('canvas');
-                canvas.width = vp.width; canvas.height = vp.height;
+                // 레이아웃이 깨지지 않도록 미리 공간을 확보
+                canvas.width = vpTemplate.width; 
+                canvas.height = vpTemplate.height;
                 canvas.style.width = `450px`; 
+                canvas.dataset.pageNumber = i; 
                 
                 const label = document.createElement('div');
                 label.className = 'page-label';
@@ -198,12 +236,24 @@
                 wrapper.appendChild(label);
                 currentGroup.appendChild(wrapper);
 
-                page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+                // 렌더링은 옵저버에게 위임
+                renderObserver.observe(canvas);
             }
-            setTimeout(resetView, 300);
+            setTimeout(resetView, 100);
         }
 
-        function updateTransform() { desk.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`; }
+        // 💡 3. GPU 가속 및 requestAnimationFrame 적용 (프레임 드랍 방지)
+        let isTransformUpdating = false;
+        function updateTransform() { 
+            if (!isTransformUpdating) {
+                requestAnimationFrame(() => {
+                    // translate3d를 사용하여 그래픽 하드웨어 연산 강제
+                    desk.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`;
+                    isTransformUpdating = false;
+                });
+                isTransformUpdating = true;
+            }
+        }
 
         let actionState = 'none'; 
         let startEvent = null, pressTimer = null;
@@ -211,7 +261,6 @@
         const LONG_PRESS_MS = 300; 
         const DRAG_THRESHOLD = 10; 
 
-        // 💡 핀치 투 줌(멀티터치)을 위한 변수 추가
         const activePointers = new Map();
         let initialPinchDistance = null;
         let lastPinchCenter = { x: 0, y: 0 };
@@ -226,14 +275,11 @@
                 if (e.target.classList.contains('mask-box')) e.target.remove();
                 return;
             }
-
             if (e.target.classList.contains('mask-box')) return;
 
-            // 터치 포인터 등록
             activePointers.set(e.pointerId, e);
             viewport.setPointerCapture(e.pointerId);
 
-            // 💡 두 손가락이 닿았을 때 (핀치 줌 시작)
             if (activePointers.size === 2) {
                 clearTimeout(pressTimer);
                 actionState = 'pinch';
@@ -244,7 +290,6 @@
                     y: (pts[0].clientY + pts[1].clientY) / 2
                 };
                 
-                // 가림막을 그리려다 두 번째 손가락이 닿은 경우 생성 중이던 가림막 취소
                 if (activeMask && parseInt(activeMask.style.width) === 0) {
                     activeMask.remove();
                     activeMask = null;
@@ -253,7 +298,6 @@
                 return;
             }
 
-            // 한 손가락일 때 (이동 또는 가림막 그리기 대기)
             if (activePointers.size === 1) {
                 actionState = 'pending';
                 startEvent = { clientX: e.clientX, clientY: e.clientY };
@@ -298,14 +342,12 @@
         });
 
         viewport.addEventListener('pointermove', (e) => {
-            // 포인터 위치 최신화
             if (activePointers.has(e.pointerId)) {
                 activePointers.set(e.pointerId, e);
             }
 
             if (actionState === 'none') return;
 
-            // 💡 핀치 투 줌 계산 (확대/축소 및 이동 동시 처리)
             if (actionState === 'pinch' && activePointers.size === 2) {
                 const pts = Array.from(activePointers.values());
                 const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
@@ -323,7 +365,6 @@
                     let newPanX = mouseX - (mouseX - panX) * (newScale / scale);
                     let newPanY = mouseY - (mouseY - panY) * (newScale / scale);
 
-                    // 손가락 중심점의 이동(Pan) 반영
                     newPanX += (centerX - lastPinchCenter.x);
                     newPanY += (centerY - lastPinchCenter.y);
 
@@ -367,17 +408,15 @@
             }
         });
 
-        // 💡 공통 터치 종료(Up/Cancel) 핸들러
         const handlePointerUp = (e) => {
             activePointers.delete(e.pointerId);
             
-            // 캡처 해제 오류 방지
             try { viewport.releasePointerCapture(e.pointerId); } catch(err) {}
 
             if (actionState === 'pinch') {
                 if (activePointers.size < 2) {
                     initialPinchDistance = null;
-                    actionState = 'none'; // 의도치 않은 이동(Pan) 방지를 위해 제스처 초기화
+                    actionState = 'none'; 
                 }
                 return;
             }
@@ -401,7 +440,6 @@
         viewport.addEventListener('pointerup', handlePointerUp);
         viewport.addEventListener('pointercancel', handlePointerUp);
 
-        // 데스크톱 마우스 휠 줌 (그대로 유지)
         viewport.addEventListener('wheel', (e) => {
             e.preventDefault();
             const delta = -e.deltaY * 0.001;
@@ -426,7 +464,6 @@
         }
         document.getElementById('reset-btn').addEventListener('click', resetView);
 
-        // --- PWA Service Worker Registration ---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('service-worker.js')
