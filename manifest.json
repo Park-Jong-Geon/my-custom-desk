@@ -1,6 +1,6 @@
 {
-  "name": "거위의암기",
-  "short_name": "거위의암기",
+  "name": "거위의책상",
+  "short_name": "거위의책상",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#2c2c2c",
