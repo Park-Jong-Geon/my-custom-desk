@@ -1,6 +1,6 @@
 {
-  "name": "Spatial PDF Desk",
-  "short_name": "PDF Desk",
+  "name": "거위의암기",
+  "short_name": "거위의암기",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#2c2c2c",
