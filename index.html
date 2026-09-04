@@ -25,9 +25,12 @@
         #viewport.erasing-mode { cursor: not-allowed; } 
         #canvas-desk { position: absolute; top: 0; left: 0; transform-origin: 0 0; display: grid; gap: 120px; padding: 150px; width: max-content; will-change: transform; }
         .chunk-group { display: grid; gap: 1px; background: var(--grid-border); border: 1px solid var(--grid-border); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+        
         .page-node { position: relative; background: var(--paper-bg); display: flex; justify-content: center; align-items: center; overflow: hidden; }
-        .page-node canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+        /* 💡 수정된 부분: object-fit 속성을 주어 비율이 강제로 찌그러지지 않게 방어 */
+        .page-node canvas { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
         .page-node.empty { background: #f8f9fa; }
+        
         .mask-box { position: absolute; background: rgba(44, 62, 80, 0.95); backdrop-filter: blur(4px); border: 2px solid #2c3e50; border-radius: 4px; cursor: pointer; z-index: 20; transition: opacity 0.1s ease; touch-action: none; }
         .mask-box:active, .mask-box.revealed { opacity: 0.1; }
         .erase-active .mask-box:hover { background: rgba(231, 76, 60, 0.8); border-color: #c0392b; }
@@ -62,7 +65,6 @@
         const viewport = document.getElementById('viewport');
         const desk = document.getElementById('canvas-desk');
         let pdfDoc = null, scale = 0.2, panX = 100, panY = 100;
-        let globalVpTemplate = null; // 슬라이드 비율 계산용
         
         const eraseBtn = document.getElementById('erase-btn');
         let isEraseMode = false, eraseTimer = null, eraseLongPressed = false;
@@ -89,23 +91,25 @@
         });
         eraseBtn.addEventListener('pointerleave', () => clearTimeout(eraseTimer));
 
-        // 💡 궁극의 메모리 관리: 화면에 보일 때만 그리고, 벗어나면 즉시 지워버림!
         const renderObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 const canvas = entry.target;
                 const pageNum = parseInt(canvas.dataset.pageNumber);
                 
                 if (entry.isIntersecting) {
-                    // 화면에 들어왔을 때 (렌더링)
                     if (canvas.dataset.rendering === "true" || canvas.dataset.rendered === "true") return;
                     
                     canvas.dataset.rendering = "true";
                     pdfDoc.getPage(pageNum).then(page => {
-                        const vp = page.getViewport({ scale: 1.0 }); // 메모리 위해 배율 1.0 유지
+                        const vp = page.getViewport({ scale: 1.0 }); 
+                        
+                        // 💡 핵심 수정: 해당 페이지의 정확한 비율로 뼈대(Wrapper) 높이를 즉각 재조정
+                        const pageRatio = vp.height / vp.width;
+                        canvas.parentElement.style.height = `${450 * pageRatio}px`;
+
                         canvas.width = vp.width;
                         canvas.height = vp.height;
                         
-                        // alpha: false 옵션으로 브라우저 합성(Compositing) 연산 감소
                         const ctx = canvas.getContext('2d', { alpha: false });
                         ctx.fillStyle = "white";
                         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -114,14 +118,11 @@
                         renderTask.promise.then(() => {
                             canvas.dataset.rendered = "true";
                             canvas.dataset.rendering = "false";
-                            // 💡 PDF.js 내부 캐시 찌꺼기 즉시 삭제! (튕김 방지 핵심)
                             page.cleanup(); 
                         });
                     });
                 } else {
-                    // 💡 화면 밖으로 나갔을 때 (메모리 해제)
                     if (canvas.dataset.rendered === "true") {
-                        // 캔버스 크기를 1픽셀로 줄여 RAM을 즉시 브라우저에 반환
                         canvas.width = 1;
                         canvas.height = 1;
                         const ctx = canvas.getContext('2d', { alpha: false });
@@ -131,7 +132,7 @@
                     }
                 }
             });
-        }, { root: viewport, rootMargin: "600px" }); // 여유 공간 축소로 더 빨리 메모리 해제
+        }, { root: viewport, rootMargin: "600px" });
 
         document.getElementById('file-input').addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -162,11 +163,11 @@
             
             if (pdfDoc.numPages === 0) return;
 
-            // 첫 페이지로 가로세로 비율(Aspect Ratio) 미리 계산
+            // 1페이지 비율로 대략적인 초기값 세팅 (개별 렌더링 시 정확히 수정됨)
             const firstPage = await pdfDoc.getPage(1);
-            globalVpTemplate = firstPage.getViewport({ scale: 1.0 });
-            const pageRatio = globalVpTemplate.height / globalVpTemplate.width;
-            firstPage.cleanup(); // 여기서도 바로 청소
+            const initialVp = firstPage.getViewport({ scale: 1.0 });
+            const initialRatio = initialVp.height / initialVp.width;
+            firstPage.cleanup(); 
 
             let currentGroup = null;
 
@@ -180,9 +181,8 @@
 
                 const wrapper = document.createElement('div');
                 wrapper.className = 'page-node';
-                // 💡 캔버스를 압축(1x1)하더라도 뼈대 크기는 유지하여 UI가 찌그러지지 않게 방지
                 wrapper.style.width = '450px';
-                wrapper.style.height = `${450 * pageRatio}px`; 
+                wrapper.style.height = `${450 * initialRatio}px`; 
                 
                 const canvas = document.createElement('canvas');
                 canvas.dataset.pageNumber = i; 
