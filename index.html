@@ -20,6 +20,23 @@
         button:hover, select:hover { background: #5a5a5a; }
         #erase-btn { background: #34495e; }
         #erase-btn.active { background: #f39c12; box-shadow: 0 0 12px rgba(243, 156, 18, 0.6); color: black; }
+        
+        /* 💡 툴팁(사용법) CSS 추가 */
+        .tooltip-container { position: relative; display: flex; align-items: center; }
+        #help-btn { background: #8e44ad; width: 34px; height: 34px; padding: 0; display: flex; justify-content: center; align-items: center; font-size: 16px; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        #help-btn:hover { background: #9b59b6; }
+        .tooltip-content {
+            visibility: hidden; opacity: 0;
+            width: 260px; background-color: rgba(30, 30, 30, 0.95); color: #e0e0e0;
+            text-align: left; border-radius: 8px; padding: 12px 15px;
+            position: absolute; z-index: 200; top: 130%; left: 0;
+            font-size: 13px; line-height: 1.6; transition: opacity 0.2s;
+            pointer-events: none; border: 1px solid #555;
+        }
+        .tooltip-container:hover .tooltip-content,
+        .tooltip-container:active .tooltip-content { visibility: visible; opacity: 1; }
+        .tooltip-content b { color: #f39c12; font-weight: 600; }
+
         #viewport { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; cursor: grab; touch-action: none; overflow: hidden; }
         #viewport:active { cursor: grabbing; }
         #viewport.erasing-mode { cursor: not-allowed; } 
@@ -34,7 +51,6 @@
             align-items: center; 
             overflow: hidden;
             width: 450px;
-            /* 💡 핵심 해결: 고정 높이 대신 브라우저가 CSS 비율을 완벽히 계산하도록 지정 */
             aspect-ratio: var(--aspect-ratio, 4 / 3);
         }
         .page-node canvas { 
@@ -67,10 +83,25 @@
             <option value="4">가로 4묶음</option>
             <option value="8" selected>가로 8묶음</option>
             <option value="12">가로 12묶음</option>
+            <option value="16">가로 16묶음</option>
         </select>
         <button id="reset-btn">책상 핏 맞추기</button>
         <div style="width: 2px; height: 20px; background: #666; margin: 0 5px;"></div>
         <button id="erase-btn">🧽 지우개</button>
+
+        <!-- 💡 툴팁 마크업 추가 -->
+        <div class="tooltip-container">
+            <button id="help-btn">❓</button>
+            <div class="tooltip-content">
+                <strong style="color:white; font-size:14px;">💡 스마트 책상 사용법</strong><br><br>
+                - <b>화면 이동:</b> 한 손가락 드래그 (PC: 마우스)<br>
+                - <b>확대/축소:</b> 두 손가락 핀치 (PC: 휠)<br>
+                - <b>가림막 생성:</b> 0.3초 꾹 누른 후 드래그<br>
+                - <b>가림막 확인:</b> 가림막 터치 시 투명화<br>
+                - <b>가림막 지우기:</b> 🧽 버튼 누르고 가림막 터치<br>
+                - <b>전체 지우기:</b> 🧽 버튼 0.5초 꾹 누르기
+            </div>
+        </div>
     </div>
     <div id="viewport">
         <div id="canvas-desk"></div>
@@ -184,10 +215,9 @@
                     desk.appendChild(currentGroup);
                 }
 
-                // 각 페이지의 고유 비율을 미리 비동기로 읽어와서 뼈대에 적용
                 const page = await pdfDoc.getPage(i);
                 const vp = page.getViewport({ scale: 1.0 });
-                const ratio = vp.width / vp.height; // 가로 세로 비율
+                const ratio = vp.width / vp.height; 
                 page.cleanup();
 
                 const wrapper = document.createElement('div');
