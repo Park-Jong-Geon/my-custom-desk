@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pdf-desk-v3';
+const CACHE_NAME = 'pdf-desk-v1';
 const URLS_TO_CACHE = [
     './',
     './index.html',
