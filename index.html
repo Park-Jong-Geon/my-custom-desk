@@ -18,16 +18,18 @@
         #toolbar { position: fixed; top: 20px; left: 20px; z-index: 100; background: rgba(40, 40, 40, 0.9); backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: flex; flex-wrap: wrap; gap: 15px; color: white; align-items: center; transform: translateZ(0); }
         input, button, select { padding: 8px 12px; border-radius: 8px; border: none; background: #4a4a4a; color: white; cursor: pointer; font-weight: 600; outline: none; transition: all 0.2s; }
         button:hover, select:hover { background: #5a5a5a; }
+        
         #erase-btn { background: #34495e; }
         #erase-btn.active { background: #f39c12; box-shadow: 0 0 12px rgba(243, 156, 18, 0.6); color: black; }
-        
-        /* 💡 툴팁(사용법) CSS 추가 */
+        #save-btn { background: #2980b9; }
+        #save-btn:hover { background: #3498db; }
+
         .tooltip-container { position: relative; display: flex; align-items: center; }
         #help-btn { background: #8e44ad; width: 34px; height: 34px; padding: 0; display: flex; justify-content: center; align-items: center; font-size: 16px; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
         #help-btn:hover { background: #9b59b6; }
         .tooltip-content {
             visibility: hidden; opacity: 0;
-            width: 260px; background-color: rgba(30, 30, 30, 0.95); color: #e0e0e0;
+            width: 270px; background-color: rgba(30, 30, 30, 0.95); color: #e0e0e0;
             text-align: left; border-radius: 8px; padding: 12px 15px;
             position: absolute; z-index: 200; top: 130%; left: 0;
             font-size: 13px; line-height: 1.6; transition: opacity 0.2s;
@@ -88,8 +90,8 @@
         <button id="reset-btn">책상 핏 맞추기</button>
         <div style="width: 2px; height: 20px; background: #666; margin: 0 5px;"></div>
         <button id="erase-btn">🧽 지우개</button>
+        <button id="save-btn">💾 저장</button>
 
-        <!-- 💡 툴팁 마크업 추가 -->
         <div class="tooltip-container">
             <button id="help-btn">❓</button>
             <div class="tooltip-content">
@@ -99,7 +101,10 @@
                 - <b>가림막 생성:</b> 0.3초 꾹 누른 후 드래그<br>
                 - <b>가림막 확인:</b> 가림막 터치 시 투명화<br>
                 - <b>가림막 지우기:</b> 🧽 버튼 누르고 가림막 터치<br>
-                - <b>전체 지우기:</b> 🧽 버튼 0.5초 꾹 누르기
+                - <b>전체 지우기:</b> 🧽 버튼 0.5초 꾹 누르기<br><br>
+                <strong style="color:#3498db;">[데이터 보존 기능]</strong><br>
+                - <b>수동 저장:</b> 💾 버튼 클릭 (앱 종료 전 필수!)<br>
+                - <b>자동 복원:</b> 같은 PDF를 열면 가림막 자동 복구
             </div>
         </div>
     </div>
@@ -137,6 +142,69 @@
             }
         });
         eraseBtn.addEventListener('pointerleave', () => clearTimeout(eraseTimer));
+
+        // 💡 가림막 이벤트 연결 공통 함수
+        function attachMaskEvents(mask) {
+            mask.addEventListener('pointerdown', function(ev) {
+                if (isEraseMode) { ev.stopPropagation(); this.remove(); return; }
+                ev.stopPropagation();
+                this.classList.add('revealed');
+            });
+            mask.addEventListener('pointerup', function(ev) { this.classList.remove('revealed'); });
+            mask.addEventListener('pointerleave', function(ev) { this.classList.remove('revealed'); });
+        }
+
+        // 💡 가림막 저장 기능
+        document.getElementById('save-btn').addEventListener('click', () => {
+            if (!pdfDoc) return;
+            const masksData = [];
+            document.querySelectorAll('.mask-box').forEach(mask => {
+                const pageNode = mask.closest('.page-node');
+                if (pageNode) {
+                    masksData.push({
+                        page: pageNode.dataset.pageNumber,
+                        left: mask.style.left,
+                        top: mask.style.top,
+                        width: mask.style.width,
+                        height: mask.style.height
+                    });
+                }
+            });
+            
+            // PDF 고유 지문(Fingerprint)을 키값으로 사용해 저장
+            localStorage.setItem(`masks_${pdfDoc.fingerprint}`, JSON.stringify(masksData));
+            
+            const btn = document.getElementById('save-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '✅ 저장됨!';
+            btn.style.background = '#27ae60';
+            setTimeout(() => { 
+                btn.innerHTML = originalText; 
+                btn.style.background = ''; 
+            }, 1500);
+        });
+
+        // 💡 가림막 불러오기 기능
+        function loadMasks() {
+            if (!pdfDoc) return;
+            const savedData = localStorage.getItem(`masks_${pdfDoc.fingerprint}`);
+            if (savedData) {
+                const masksData = JSON.parse(savedData);
+                masksData.forEach(data => {
+                    const pageNode = document.querySelector(`.page-node[data-page-number="${data.page}"]`);
+                    if (pageNode) {
+                        const mask = document.createElement('div');
+                        mask.className = 'mask-box';
+                        mask.style.left = data.left;
+                        mask.style.top = data.top;
+                        mask.style.width = data.width;
+                        mask.style.height = data.height;
+                        attachMaskEvents(mask);
+                        pageNode.appendChild(mask);
+                    }
+                });
+            }
+        }
 
         const renderObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
@@ -223,6 +291,7 @@
                 const wrapper = document.createElement('div');
                 wrapper.className = 'page-node';
                 wrapper.style.setProperty('--aspect-ratio', `${vp.width} / ${vp.height}`);
+                wrapper.dataset.pageNumber = i; // 검색 편의를 위해 wrapper에도 번호 부여
                 
                 const canvas = document.createElement('canvas');
                 canvas.dataset.pageNumber = i; 
@@ -238,6 +307,9 @@
 
                 renderObserver.observe(canvas);
             }
+            
+            // 💡 모든 페이지 뼈대가 완성된 후 저장된 가림막 불러오기
+            loadMasks();
             setTimeout(resetView, 100);
         }
 
@@ -319,13 +391,7 @@
                             activeMask.style.width = '0px';
                             activeMask.style.height = '0px';
 
-                            activeMask.addEventListener('pointerdown', function(ev) {
-                                if (isEraseMode) { ev.stopPropagation(); this.remove(); return; }
-                                ev.stopPropagation();
-                                this.classList.add('revealed');
-                            });
-                            activeMask.addEventListener('pointerup', function(ev) { this.classList.remove('revealed'); });
-                            activeMask.addEventListener('pointerleave', function(ev) { this.classList.remove('revealed'); });
+                            attachMaskEvents(activeMask); // 공통 함수 사용
 
                             activePage.appendChild(activeMask);
                             document.body.style.cursor = 'crosshair';
